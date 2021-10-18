@@ -1,0 +1,228 @@
+<!-- chat/templates/chat/room.html -->
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Live Drawing</title>
+
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+          "Segoe UI Symbol";
+      }
+      .canvas-container {
+        float: left;
+      }
+      #canvas {
+        border: 1px solid #eba83a;
+      }
+      #drawing-mode {
+        margin-bottom: 10px;
+        vertical-align: top;
+      }
+      #drawing-mode-options {
+        display: inline-block;
+        vertical-align: top;
+        margin-bottom: 10px;
+        margin-top: 10px;
+        background: #f5f2f0;
+        padding: 10px;
+      }
+      label {
+        display: inline-block;
+        width: 130px;
+      }
+      .info {
+        display: inline-block;
+        width: 25px;
+        background: #ffc;
+      }
+      #bd-wrapper {
+        min-width: 1500px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <canvas id="canvas" width="1024px" height="700px"></canvas>
+
+    <div style="display: inline-block; margin-left: 10px">
+      <div id="drawing-mode-options">
+        <label for="drawing-line-width">Line width:</label>
+        <span class="info">2</span
+        ><input
+          type="range"
+          value="2"
+          min="0"
+          max="150"
+          id="drawing-line-width"
+        /><br />
+
+        <label for="drawing-color">Line color:</label>
+        <input type="color" value="#005E7A" id="drawing-color" /><br />
+
+        <label for="drawing-shadow-color">Shadow color:</label>
+        <input type="color" value="#005E7A" id="drawing-shadow-color" /><br />
+
+        <label for="drawing-shadow-width">Shadow width:</label>
+        <span class="info">0</span
+        ><input
+          type="range"
+          value="0"
+          min="0"
+          max="50"
+          id="drawing-shadow-width"
+        /><br />
+
+        <label for="drawing-shadow-offset">Shadow offset:</label>
+        <span class="info">0</span
+        ><input
+          type="range"
+          value="0"
+          min="0"
+          max="50"
+          id="drawing-shadow-offset"
+        /><br />
+      </div>
+
+      <div style="text-align: center">
+        <button id="clear-canvas" class="btn btn-info">Clear Drawing</button>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/fabric@4.6.0/dist/fabric.min.js"></script>
+    <script>
+      (function () {
+        const socketConnection = new WebSocket(
+          "ws://" + window.location.host + "/ws/draw/free_draw/"
+        );
+
+
+        socketConnection.onmessage = function (e) {
+          var data = JSON.parse(e.data);
+          if(data.message.action == "clear") {
+              canvas.clear();
+              return
+          }
+
+          data = data.message.drawInstruction;
+          var path = new fabric.Path(data.pathCoordinates, {
+            stroke: data.stroke,
+            strokeWidth: data.strokeWidth,
+            strokeLineCap: data.strokeLineCap,
+            strokeLineJoin: data.strokeLineJoin,
+            shadow: data.shadow,
+            fill: data.fill,
+          });
+          canvas.add(path);
+        };
+
+        socketConnection.onclose = function (e) {
+          console.error("Chat socket closed unexpectedly");
+        };
+
+        var $ = function (id) {
+          return document.getElementById(id);
+        };
+
+        var canvas = (this.__canvas = new fabric.Canvas("canvas", {
+          isDrawingMode: true,
+        }));
+
+        fabric.Object.prototype.transparentCorners = false;
+
+        var drawingOptionsEl = $("drawing-mode-options"),
+          drawingColorEl = $("drawing-color"),
+          drawingShadowColorEl = $("drawing-shadow-color"),
+          drawingLineWidthEl = $("drawing-line-width"),
+          drawingShadowWidth = $("drawing-shadow-width"),
+          drawingShadowOffset = $("drawing-shadow-offset"),
+          clearEl = $("clear-canvas");
+
+        clearEl.onclick = function () {
+          canvas.clear();
+
+          socketConnection.send(
+            JSON.stringify({
+              message: {
+                  action: "clear"
+              },
+            })
+          );
+        };
+
+        drawingColorEl.onchange = function () {
+          var brush = canvas.freeDrawingBrush;
+          brush.color = this.value;
+          if (brush.getPatternSrc) {
+            brush.source = brush.getPatternSrc.call(brush);
+          }
+        };
+
+        drawingShadowColorEl.onchange = function () {
+          canvas.freeDrawingBrush.shadow.color = this.value;
+        };
+
+        drawingLineWidthEl.onchange = function () {
+          canvas.freeDrawingBrush.width = parseInt(this.value, 10) || 1;
+          this.previousSibling.innerHTML = this.value;
+        };
+
+        drawingShadowWidth.onchange = function () {
+          canvas.freeDrawingBrush.shadow.blur = parseInt(this.value, 10) || 0;
+          this.previousSibling.innerHTML = this.value;
+        };
+
+        drawingShadowOffset.onchange = function () {
+          canvas.freeDrawingBrush.shadow.offsetX =
+            parseInt(this.value, 10) || 0;
+          canvas.freeDrawingBrush.shadow.offsetY =
+            parseInt(this.value, 10) || 0;
+          this.previousSibling.innerHTML = this.value;
+        };
+
+        if (canvas.freeDrawingBrush) {
+          canvas.freeDrawingBrush.color = drawingColorEl.value;
+          canvas.freeDrawingBrush.width =
+            parseInt(drawingLineWidthEl.value, 10) || 1;
+          canvas.freeDrawingBrush.shadow = new fabric.Shadow({
+            blur: parseInt(drawingShadowWidth.value, 10) || 0,
+            offsetX: 0,
+            offsetY: 0,
+            affectStroke: true,
+            color: drawingShadowColorEl.value,
+          });
+        }
+
+        // Observing event: Triggers each time when path drawing ends.
+        canvas.on("path:created", function (e) {
+          var pathCoordinates = e.path.path
+            .map(function (item) {
+              return item.join(" ");
+            })
+            .join(" ");
+
+          var drawInstruction = {
+            pathCoordinates: pathCoordinates,
+            stroke: e.path.stroke,
+            strokeWidth: e.path.strokeWidth,
+            strokeLineCap: e.path.strokeLineCap,
+            strokeLineJoin: e.path.strokeLineJoin,
+            shadow: e.path.shadow,
+            fill: false,
+          };
+
+          socketConnection.send(
+            JSON.stringify({
+              message: {
+                  action: "draw",
+                  drawInstruction: drawInstruction
+              },
+            })
+          );
+        });
+      })();
+    </script>
+  </body>
+</html>
